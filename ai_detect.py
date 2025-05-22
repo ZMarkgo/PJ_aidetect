@@ -173,11 +173,14 @@ class BertClassifier(nn.Module):
         return torch.sigmoid(logits)
 
 # 训练函数
-def train_model(model, train_loader, val_loader, device, epochs=3, lr=2e-5):
+def train_model(model, train_loader, val_loader, device, epochs=3, lr=2e-5, model_save_path='models'):
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     criterion = nn.BCELoss()
     best_auc = 0.0
     best_model = None
+    
+    # 创建模型保存目录
+    os.makedirs(model_save_path, exist_ok=True)
     
     for epoch in range(epochs):
         model.train()
@@ -219,6 +222,14 @@ def train_model(model, train_loader, val_loader, device, epochs=3, lr=2e-5):
         if val_auc > best_auc:
             best_auc = val_auc
             best_model = model.state_dict().copy()
+            # 保存最佳模型
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': best_model,
+                'optimizer_state_dict': optimizer.state_dict(),
+                'val_auc': best_auc,
+            }, os.path.join(model_save_path, 'best_model.pth'))
+            print(f"保存最佳模型，验证AUC: {best_auc:.4f}")
     
     # 加载最佳模型
     if best_model:
@@ -245,6 +256,9 @@ def predict(model, test_loader, device):
 def main():
     # 设置随机种子
     set_seed(42)
+    
+    # 设置模型保存路径
+    MODEL_SAVE_PATH = 'models'
     
     # 加载数据
     print("加载数据...")
@@ -289,7 +303,7 @@ def main():
     model.to(device)
     
     # 训练模型
-    model, best_auc = train_model(model, train_loader, val_loader, device, epochs=3)
+    model, best_auc = train_model(model, train_loader, val_loader, device, epochs=3, model_save_path=MODEL_SAVE_PATH)
     print(f"最佳验证AUC: {best_auc:.4f}")
     
     # 预测测试集
