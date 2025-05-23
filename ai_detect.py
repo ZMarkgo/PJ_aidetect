@@ -10,6 +10,7 @@ from transformers import BertModel, BertTokenizer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
+import argparse
 
 # 设置随机种子，确保结果可复现
 def set_seed(seed=42):
@@ -173,16 +174,28 @@ class BertClassifier(nn.Module):
         return torch.sigmoid(logits)
 
 # 训练函数
-def train_model(model, train_loader, val_loader, device, epochs=3, lr=2e-5, model_save_path='models'):
+def train_model(model, train_loader, val_loader, device, epochs=3, lr=2e-5, model_save_path='models', resume_from=None):
+    # 创建模型保存目录
+    os.makedirs(model_save_path, exist_ok=True)
+    
+    # 初始化优化器
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     criterion = nn.BCELoss()
     best_auc = 0.0
     best_model = None
+    start_epoch = 0
     
-    # 创建模型保存目录
-    os.makedirs(model_save_path, exist_ok=True)
+    # 如果指定了恢复训练的模型文件
+    if resume_from and os.path.exists(resume_from):
+        print(f"从检查点恢复训练: {resume_from}")
+        checkpoint = torch.load(resume_from)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        start_epoch = checkpoint['epoch'] + 1
+        best_auc = checkpoint['val_auc']
+        print(f"从epoch {start_epoch}继续训练，之前最佳验证AUC: {best_auc:.4f}")
     
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         model.train()
         train_loss = 0
         
@@ -254,11 +267,24 @@ def predict(model, test_loader, device):
     return predictions
 
 def main():
+    # 添加命令行参数解析
+    parser = argparse.ArgumentParser(description='AI生成文本检测模型训练和预测')
+    parser.add_argument('--resume', type=str, default=None, help='从指定的模型文件恢复训练')
+    parser.add_argument('--epochs', type=int, default=10, help='训练轮数')
+    parser.add_argument('--lr', type=float, default=2e-5, help='学习率')
+    parser.add_argument('--batch_size', type=int, default=8, help='训练批次大小')
+    parser.add_argument('--eval_batch_size', type=int, default=16, help='评估批次大小')
+    args = parser.parse_args()
+
     # 设置随机种子
     set_seed(42)
     
     # 设置模型保存路径
     MODEL_SAVE_PATH = 'models'
+
+    # 设置结果保存路径
+    RESULTS_SAVE_PATH = 'results'
+    TEST_PRED_RESULT_SAVE_PATH = f'{RESULTS_SAVE_PATH}/test_pred.jsonl'
     
     # 加载数据
     print("加载数据...")
@@ -290,9 +316,9 @@ def main():
     test_dataset = TextDataset(test_texts, tokenizer=tokenizer, feature_extractor=feature_extractor)
     
     # 数据加载器
-    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=16)
-    test_loader = DataLoader(test_dataset, batch_size=16)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.eval_batch_size)
+    test_loader = DataLoader(test_dataset, batch_size=args.eval_batch_size)
     
     # 设备配置
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -303,7 +329,16 @@ def main():
     model.to(device)
     
     # 训练模型
-    model, best_auc = train_model(model, train_loader, val_loader, device, epochs=3, model_save_path=MODEL_SAVE_PATH)
+    model, best_auc = train_model(
+        model, 
+        train_loader, 
+        val_loader, 
+        device, 
+        epochs=args.epochs, 
+        lr=args.lr, 
+        model_save_path=MODEL_SAVE_PATH,
+        resume_from=args.resume
+    )
     print(f"最佳验证AUC: {best_auc:.4f}")
     
     # 预测测试集
@@ -311,8 +346,8 @@ def main():
     
     # 保存结果
     results = [{"id": id_, "generated": float(pred)} for id_, pred in zip(test_ids, test_preds)]
-    save_jsonl('test_pred.jsonl', results)
-    print("预测结果已保存到 test_pred.jsonl")
+    save_jsonl(TEST_PRED_RESULT_SAVE_PATH, results)
+    print(f"预测结果已保存到 {TEST_PRED_RESULT_SAVE_PATH}")
 
 if __name__ == "__main__":
     main() 
