@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from transformers import BertModel, BertTokenizer
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import accuracy_score, roc_auc_score
 from tqdm import tqdm
 import argparse
 
@@ -174,16 +174,18 @@ class BertClassifier(nn.Module):
         return torch.sigmoid(logits)
 
 # 训练函数
-def train_model(model, train_loader, val_loader, device, epochs=3, lr=2e-5, model_save_path='models', resume_from=None):
+def train_model(model, train_loader, val_loader, device, metric='acc', epochs=3, lr=2e-5, model_save_path='models', resume_from=None):
     # 创建模型保存目录
     os.makedirs(model_save_path, exist_ok=True)
     
     # 初始化优化器
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     criterion = nn.BCELoss()
-    best_auc = 0.0
+    best_score = 0.0
     best_model = None
     start_epoch = 0
+    
+    metric_name = "准确率" if metric == 'acc' else "AUC"
     
     # 如果指定了恢复训练的模型文件
     if resume_from and os.path.exists(resume_from):
@@ -192,8 +194,8 @@ def train_model(model, train_loader, val_loader, device, epochs=3, lr=2e-5, mode
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         start_epoch = checkpoint['epoch'] + 1
-        best_auc = checkpoint['val_auc']
-        print(f"从epoch {start_epoch}继续训练，之前最佳验证AUC: {best_auc:.4f}")
+        best_score = checkpoint['val_score']
+        print(f"从epoch {start_epoch}继续训练，之前最佳验证{metric_name}: {best_score:.4f}")
     
     for epoch in range(start_epoch, epochs):
         model.train()
@@ -229,26 +231,33 @@ def train_model(model, train_loader, val_loader, device, epochs=3, lr=2e-5, mode
                 val_preds.extend(outputs.squeeze().cpu().numpy())
                 val_labels.extend(labels.cpu().numpy())
         
-        val_auc = roc_auc_score(val_labels, val_preds)
-        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {train_loss/len(train_loader):.4f}, Val AUC: {val_auc:.4f}")
+        # 根据选择的指标计算得分
+        if metric == 'acc':
+            val_preds_binary = [1 if pred > 0.5 else 0 for pred in val_preds]
+            val_score = accuracy_score(val_labels, val_preds_binary)
+        else:  # metric == 'auc'
+            val_score = roc_auc_score(val_labels, val_preds)
+            
+        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {train_loss/len(train_loader):.4f}, Val {metric_name}: {val_score:.4f}")
         
-        if val_auc > best_auc:
-            best_auc = val_auc
+        if val_score > best_score:
+            best_score = val_score
             best_model = model.state_dict().copy()
             # 保存最佳模型
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': best_model,
                 'optimizer_state_dict': optimizer.state_dict(),
-                'val_auc': best_auc,
+                'val_score': best_score,
+                'metric': metric
             }, os.path.join(model_save_path, 'best_model.pth'))
-            print(f"保存最佳模型，验证AUC: {best_auc:.4f}")
+            print(f"保存最佳模型，验证{metric_name}: {best_score:.4f}")
     
     # 加载最佳模型
     if best_model:
         model.load_state_dict(best_model)
     
-    return model, best_auc
+    return model, best_score
 
 # 预测函数
 def predict(model, test_loader, device):
@@ -270,10 +279,11 @@ def main():
     # 添加命令行参数解析
     parser = argparse.ArgumentParser(description='AI生成文本检测模型训练和预测')
     parser.add_argument('--resume', type=str, default=None, help='从指定的模型文件恢复训练')
-    parser.add_argument('--epochs', type=int, default=10, help='训练轮数')
-    parser.add_argument('--lr', type=float, default=2e-5, help='学习率')
+    parser.add_argument('--epochs', type=int, default=3, help='训练轮数')
+    parser.add_argument('--lr', type=float, default=1e-5, help='学习率')
     parser.add_argument('--batch_size', type=int, default=8, help='训练批次大小')
     parser.add_argument('--eval_batch_size', type=int, default=16, help='评估批次大小')
+    parser.add_argument('--metric', type=str, choices=['acc', 'auc'], default='acc', help='评估指标，可选acc（准确率）或auc（AUC）')
     args = parser.parse_args()
 
     # 设置随机种子
@@ -329,17 +339,19 @@ def main():
     model.to(device)
     
     # 训练模型
-    model, best_auc = train_model(
+    model, best_score = train_model(
         model, 
         train_loader, 
         val_loader, 
-        device, 
+        device,
+        metric=args.metric,
         epochs=args.epochs, 
         lr=args.lr, 
         model_save_path=MODEL_SAVE_PATH,
         resume_from=args.resume
     )
-    print(f"最佳验证AUC: {best_auc:.4f}")
+    metric_name = "准确率" if args.metric == 'acc' else "AUC"
+    print(f"最佳验证{metric_name}: {best_score:.4f}")
     
     # 预测测试集
     test_preds = predict(model, test_loader, device)
