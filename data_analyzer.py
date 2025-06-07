@@ -36,7 +36,7 @@ def analyze_text_length(texts, labels=None):
         plt.ylabel('频率')
         plt.title('人类撰写与AI生成文本的长度分布')
         plt.legend()
-        plt.savefig('text_length_distribution.png')
+        plt.savefig('results/text_length_distribution.png')
         
         print(f"人类撰写文本平均长度: {np.mean(human_lengths):.2f}")
         print(f"AI生成文本平均长度: {np.mean(ai_lengths):.2f}")
@@ -71,7 +71,7 @@ def analyze_sentence_length(texts, labels=None):
         plt.ylabel('频率')
         plt.title('人类撰写与AI生成文本的句子长度分布')
         plt.legend()
-        plt.savefig('sentence_length_distribution.png')
+        plt.savefig('results/sentence_length_distribution.png')
         
         print(f"人类撰写文本平均句子长度: {np.mean(human_sentence_lengths):.2f}")
         print(f"AI生成文本平均句子长度: {np.mean(ai_sentence_lengths):.2f}")
@@ -106,7 +106,7 @@ def analyze_punctuation(texts, labels=None):
         plt.ylabel('频率')
         plt.title('人类撰写与AI生成文本的标点符号使用比例')
         plt.legend()
-        plt.savefig('punctuation_ratio_distribution.png')
+        plt.savefig('results/punctuation_ratio_distribution.png')
         
         print(f"人类撰写文本标点符号比例: {np.mean(human_punctuation_ratios):.4f}")
         print(f"AI生成文本标点符号比例: {np.mean(ai_punctuation_ratios):.4f}")
@@ -139,7 +139,7 @@ def analyze_word_uniqueness(texts, labels=None):
         plt.ylabel('频率')
         plt.title('人类撰写与AI生成文本的词汇多样性')
         plt.legend()
-        plt.savefig('word_uniqueness_distribution.png')
+        plt.savefig('results/word_uniqueness_distribution.png')
         
         print(f"人类撰写文本词汇多样性: {np.mean(human_unique_ratios):.4f}")
         print(f"AI生成文本词汇多样性: {np.mean(ai_unique_ratios):.4f}")
